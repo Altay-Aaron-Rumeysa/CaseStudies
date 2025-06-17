@@ -102,74 +102,53 @@ semPaths(
 
 
 # -----------------------------------------
-# Descriptive Stats and Plots for Model 1 Variables
+# Plots
 # -----------------------------------------
-model1_vars <- nhis_data %>%
-  select(DIBEV_A, HYPEV_A, PHSTAT_A, PHQCAT_A, LSATIS4_A, EDUCP_A, POVRATTC_A)
+nhis_data <- nhis_data %>%
+  mutate(
+    # Reverse PHSTAT_A so that higher values = better health
+    PHSTAT_REVERSED = max(PHSTAT_A, na.rm = TRUE) + 1 - PHSTAT_A,
+    
+    # Create standardized SES composite
+    SES_SCORE = scale(EDUCP_A) + scale(POVRATTC_A),
+    
+    # SES grouping (tertiles)
+    SES_GROUP = case_when(
+      SES_SCORE < quantile(SES_SCORE, 0.33, na.rm = TRUE) ~ "Low SES",
+      SES_SCORE > quantile(SES_SCORE, 0.66, na.rm = TRUE) ~ "High SES",
+      TRUE ~ "Mid SES"
+    ),
+    
+    # Insurance label
+    INS_LABEL = ifelse(HICOV_A == 1, "Uninsured", "Insured")
+  )
 
-# Summary
-summary(model1_vars)
-describe(model1_vars)
+plot_data <- nhis_data %>%
+  group_by(SES_GROUP, INS_LABEL) %>%
+  summarise(
+    mean_health = mean(PHSTAT_REVERSED, na.rm = TRUE),
+    se_health = sd(PHSTAT_REVERSED, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  ungroup()
 
-# Histograms
-model1_vars %>%
-  tidyr::gather(variable, value) %>%
-  ggplot(aes(x = value)) +
-  geom_histogram(bins = 30, fill = "lightblue", color = "black") +
-  facet_wrap(~variable, scales = "free") +
-  theme_minimal()
+# Ensure factor levels are ordered
+plot_data$INS_LABEL <- factor(plot_data$INS_LABEL, levels = c("Uninsured", "Insured"))
+plot_data$SES_GROUP <- factor(plot_data$SES_GROUP, levels = c("Low SES", "Mid SES", "High SES"))
 
-# Correlation matrix for perceived health indicators
-model1_vars %>%
-  select(PHSTAT_A, PHQCAT_A, LSATIS4_A) %>%
-  ggpairs()
+# Create the plot
+ggplot(plot_data, aes(x = SES_GROUP, y = mean_health, group = INS_LABEL, color = INS_LABEL)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean_health - se_health, ymax = mean_health + se_health), width = 0.2) +
+  labs(
+    title = "Interaction of SES and Insurance on Perceived Health",
+    x = "Socioeconomic Status Group",
+    y = "Mean Perceived Health (Higher = Better)",
+    color = "Insurance Status"
+  ) +
+  theme_minimal(base_size = 14) +
+  scale_color_manual(values = c("Insured" = "#1f78b4", "Uninsured" = "#e31a1c"))
 
-# Boxplots: SES vs PHSTAT_A
-nhis_data %>%
-  ggplot(aes(x = as.factor(EDUCP_A), y = PHSTAT_A)) +
-  geom_boxplot() +
-  labs(x = "Education Level", y = "Self-Rated Health") +
-  theme_minimal()
 
-nhis_data %>%
-  ggplot(aes(x = as.factor(POVRATTC_A), y = PHSTAT_A)) +
-  geom_boxplot() +
-  labs(x = "Poverty Ratio Category", y = "Self-Rated Health") +
-  theme_minimal()
 
-# -----------------------------------------
-# Descriptive Stats and Plots for Model 3 Variables
-# -----------------------------------------
-model3_vars <- nhis_data %>%
-  select(PHSTAT_A, INS_BIN, SES_SCORE)
-
-# Summary
-summary(model3_vars)
-describe(model3_vars)
-
-# Histogram: PHSTAT_A by Insurance Status
-nhis_data %>%
-  ggplot(aes(x = PHSTAT_A, fill = as.factor(INS_BIN))) +
-  geom_histogram(position = "dodge", bins = 30) +
-  labs(fill = "Insurance Status", x = "Self-Rated Health", y = "Count") +
-  theme_minimal()
-
-# Scatterplot: SES_SCORE vs PHSTAT_A colored by Insurance
-nhis_data %>%
-  ggplot(aes(x = SES_SCORE, y = PHSTAT_A, color = as.factor(INS_BIN))) +
-  geom_point(alpha = 0.4) +
-  geom_smooth(method = "lm", se = FALSE) +
-  labs(color = "Insurance", x = "SES Score", y = "Self-Rated Health") +
-  theme_minimal()
-
-# Interaction plot manually (approximate)
-nhis_data %>%
-  mutate(SES_quartile = ntile(SES_SCORE, 4)) %>%
-  group_by(SES_quartile, INS_BIN) %>%
-  summarise(mean_health = mean(PHSTAT_A, na.rm = TRUE)) %>%
-  ggplot(aes(x = SES_quartile, y = mean_health, color = as.factor(INS_BIN), group = INS_BIN)) +
-  geom_line() +
-  geom_point() +
-  labs(x = "SES Quartile", y = "Mean Self-Rated Health", color = "Insurance Status") +
-  theme_minimal()
 
